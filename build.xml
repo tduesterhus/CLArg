@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="ClArg" default="build" basedir=".">
+
+    <!-- ============================================================= -->
+    <!-- Properties                                                    -->
+    <!-- ============================================================= -->
+    <property name="toolsdir" value="${basedir}/tools"/>
+
+    <target name="clean" description="Clean up and create artifact directories">
+        <delete dir="${basedir}/build/coverage"/>
+        <delete dir="${basedir}/build/logs"/>
+        <delete dir="${basedir}/build/phpab"/>
+        <delete dir="${basedir}/build/phpunit"/>
+
+        <mkdir dir="${basedir}/build/coverage"/>
+        <mkdir dir="${basedir}/build/logs"/>
+        <mkdir dir="${basedir}/build/phpab"/>
+        <mkdir dir="${basedir}/build/phpunit"/>
+
+        <mkdir dir="${basedir}/tests/unit"/>
+    </target>
+
+    <!-- ============================================================= -->
+    <!-- System preparations (setup)                                   -->
+    <!-- ============================================================= -->
+    <target name="install-tools" depends="clean">
+        <exec executable="sh" taskname="phive">
+            <arg value="-c"/>
+            <arg value="yes | phive --no-progress --home ${basedir}/build/phive install phpab phpunit --trust-gpg-keys 4AA394086372C20A,2A8299CE842DD38C --target tools --copy"/>
+        </exec>
+        <symlink link="${toolsdir}/phpunit.phar" resource="${toolsdir}/phpunit"/>
+    </target>
+
+    <!-- ======================================================================= -->
+    <!-- Resolve Dependencies                                                    -->
+    <!-- ======================================================================= -->
+    <target name="install-dependencies">
+        <exec executable="${toolsdir}/composer" taskname="composer">
+            <arg value="update"/>
+        </exec>
+        <exec executable="${toolsdir}/composer" taskname="composer">
+            <arg value="install"/>
+        </exec>
+    </target>
+
+    <target name="initEnvironment" depends="clean,install-tools,install-dependencies"/>
+
+    <!--%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%-->
+    <!-- Build                                                         -->
+    <!--%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%-->
+
+    <target name="build" description="Basis build" depends="clean, lint, phpab, phpunit"/>
+
+    <!-- ============================================================= -->
+    <!-- Run the syntax checks                                         -->
+    <!-- ============================================================= -->
+    <target name="lint">
+        <apply executable="php" failonerror="true">
+            <arg value="-l"/>
+            <fileset dir="${basedir}/src">
+                <include name="**/*.php"/>
+                <modified/>
+            </fileset>
+            <fileset dir="${basedir}/tests/unit">
+                <include name="**/*.php"/>
+                <modified/>
+            </fileset>
+        </apply>
+    </target>
+
+    <!-- ============================================================= -->
+    <!-- Create the autoload files                                     -->
+    <!-- ============================================================= -->
+    <target name="phpab" depends="clean, lint">
+        <exec executable="${toolsdir}/phpab" taskname="phpab">
+            <arg value="--cache"/>
+            <arg value="${basedir}/build/cache.src.phpab"/>
+            <arg value="--output"/>
+            <arg path="${basedir}/src/autoload.php"/>
+            <arg path="${basedir}/src"/>
+        </exec>
+        <exec executable="${toolsdir}/phpab" taskname="phpab">
+            <arg value="--cache"/>
+            <arg value="${basedir}/build/cache.tests.phpab"/>
+            <arg value="--output"/>
+            <arg path="${basedir}/tests/autoload.php"/>
+            <arg path="${basedir}/tests"/>
+        </exec>
+    </target>
+
+    <!-- ============================================================= -->
+    <!-- Run tests using phpunit                                       -->
+    <!-- ============================================================= -->
+    <target name="phpunit" depends="clean, lint, phpab">
+        <delete dir="${basedir}/build/coverage"/>
+        <exec executable="${toolsdir}/phpunit" failonerror="true" taskname="phpunit">
+            <env key="XDEBUG_MODE" value="coverage"/>
+            <arg path="${basedir}/tests"/>
+            <arg value="--configuration"/>
+            <arg path="${basedir}"/>
+            <arg value="--cache-result-file=${basedir}/build/phpunit/phpunit.result.cache"/>
+        </exec>
+    </target>
+
+    <target name="phive-exists-ci">
+        <available file="${user.home}/.phive/phive.phar" property="phive.present"/>
+    </target>
+
+    <target name="install-phive-ci" depends="phive-exists-ci" unless="phive.present"
+            description="install phive for current user">
+        <mkdir dir="${user.home}/.phive" />
+
+        <exec executable="wget" taskname="wget" dir="${user.home}/.phive">
+            <arg value="https://phar.io/releases/phive.phar"/>
+        </exec>
+        <exec executable="wget" taskname="wget" dir="${user.home}/.phive">
+            <arg value="https://phar.io/releases/phive.phar.asc"/>
+        </exec>
+        <exec executable="gpg" taskname="gpg-get-key" dir="${user.home}/.phive">
+            <arg line="--keyserver ha.pool.sks-keyservers.net --recv-keys 0x9D8A98B29B2D5D79" />
+        </exec>
+        <exec executable="gpg" taskname="gpg-verify" dir="${user.home}/.phive">
+            <arg line="--verify phive.phar.asc phive.phar" />
+        </exec>
+        <chmod file="${user.home}/.phive/phive.phar" perm="+x" />
+        <delete file="${user.home}/.phive/phive.phar.asc" />
+    </target>
+
+    <target name="install-tools-ci" depends="install-phive-ci">
+        <exec executable="${user.home}/.phive/phive.phar" taskname="phive">
+            <arg line="--no-progress --home ${basedir}/build/phive install phpab phpunit --trust-gpg-keys 4AA394086372C20A,2A8299CE842DD38C --target tools --copy" />
+        </exec>
+        <symlink link="${toolsdir}/phpunit.phar" resource="${toolsdir}/phpunit"/>
+    </target>
+
+    <target name="update-dependencies">
+        <exec executable="${toolsdir}/composer" taskname="composer">
+            <arg value="update"/>
+        </exec>
+    </target>
+</project>
